@@ -20,15 +20,32 @@ Esta versão foi especialmente desenhada para operação autônoma sem dependên
    - Identidade visual com o emblema oficial (Compasso de Precisão e Esquadro).
    - Vocabulário e campos adaptados para aprovações em prefeituras, alvarás de reforma/construção, regularizações e projetos urbanísticos.
 
-3. **📰 Consulta do Diário Oficial de SP (DOSP / ARQUIP) Direto na Tela:**
+3. **📱 Menu Lateral Moderno & Selecionável (Sidebar):**
+   - Navegação lateral fluida no Desktop e gaveta deslizante (*Slide-Over Drawer*) no Mobile.
+   - Acesso rápido a: **📊 Prazos & Processos**, **👥 Usuários & Acessos (exclusivo Admin)**, **📰 Diário Oficial (DOSP)**, **🔔 Alertas no Navegador**, **🔑 Alterar Senha**, **🌓 Modo Claro/Escuro** e **🚪 Sair**.
+
+4. **🛡️ Controle de Acesso por Níveis (Admin vs. Operador):**
+   - **Administrador (`admin`):**
+     - Acesso irrestrito a todos os processos.
+     - Pode **incluir prazos e atribuir a qualquer arquiteto** ou membro da equipe.
+     - Pode editar e **excluir qualquer processo** do escritório.
+     - Acesso ao menu **"Usuários & Acessos"** para cadastrar logins/senhas, definir perfis e redefinir senhas da equipe.
+   - **Operador (`operador`):**
+     - **Visualização transparente:** enxerga todos os processos do escritório para alinhamento da equipe.
+     - Ao cadastrar um novo prazo, ele é **vinculado obrigatoriamente a si mesmo**.
+     - Pode editar e **excluir estritamente os seus próprios processos** (não pode excluir nem editar processos de outros colegas).
+     - Sem acesso ao menu de gestão de usuários.
+
+5. **📰 Consulta do Diário Oficial de SP (DOSP / ARQUIP) Direto na Tela:**
    - Janela modal exclusiva que consulta despachos e publicações no Diário Oficial sem sair do painel e sem redigitar o processo.
    - Botão de 1 clique para abrir o portal oficial já filtrado em nova aba.
 
-4. **👥 Gestão de Equipe & Segurança Individual:**
-   - Tela de login protegida para equipe.
+6. **👥 Gestão de Equipe & Segurança Individual:**
+   - Tela de login com placeholder limpo e elegante.
+   - Administrador pode criar usuários instantaneamente com senha inicial e cargo.
    - Cada arquiteto(a) ou colaborador(a) pode alterar sua própria senha no painel com persistência segura no banco de dados.
 
-5. **📊 Exportação e Responsividade:**
+7. **📊 Exportação e Responsividade:**
    - Exportação para Excel (CSV compatível com acentuação e caracteres em português).
    - Impressão executiva / Salvamento em PDF com layout limpo e otimizado.
    - Modo escuro (*Dark Mode*) e modo claro (*Light Mode*).

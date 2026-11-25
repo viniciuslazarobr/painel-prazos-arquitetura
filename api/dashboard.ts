@@ -21,15 +21,8 @@ async function readJsonBody(req: IncomingMessage): Promise<any> {
 // Configuração de Autenticação para Acesso ao Painel
 const DEFAULT_PASSWORD = process.env.DASHBOARD_PASSWORD || 'prazos2026';
 const TOKEN_SECRET = process.env.SUPABASE_SERVICE_ROLE_KEY || 'prazos-secret-key-2026';
-const VALID_USERS: Record<string, string> = {
-  [process.env.DASHBOARD_USER?.toLowerCase() || 'admin']: DEFAULT_PASSWORD,
-  'escritorio': DEFAULT_PASSWORD,
-  'alexandre': DEFAULT_PASSWORD,
-  'anderson': DEFAULT_PASSWORD,
-  'dinho': DEFAULT_PASSWORD,
-};
 
-async function getUserPassword(username: string): Promise<string> {
+async function getUserPassword(username: string): Promise<string | null> {
   const normalizedUser = username.trim().toLowerCase();
   try {
     const { data } = await supabase
@@ -45,8 +38,13 @@ async function getUserPassword(username: string): Promise<string> {
     console.warn('[Auth] Erro ao buscar senha customizada no banco:', err);
   }
 
-  // Fallback para usuário configurado ou senha padrão
-  return VALID_USERS[normalizedUser] || DEFAULT_PASSWORD;
+  // Apenas o usuário 'admin' tem acesso inicial com a senha padrão configurada
+  if (normalizedUser === 'admin') {
+    return DEFAULT_PASSWORD;
+  }
+
+  // Usuários criados pelo admin só acessam se tiverem senha cadastrada no banco
+  return null;
 }
 
 async function setUserPassword(username: string, newPass: string): Promise<boolean> {
@@ -62,6 +60,37 @@ async function setUserPassword(username: string, newPass: string): Promise<boole
     return !error;
   } catch (err) {
     console.error('[Auth] Erro ao salvar senha:', err);
+    return false;
+  }
+}
+
+async function getUserRole(username: string): Promise<'admin' | 'operador'> {
+  const normalized = username.trim().toLowerCase();
+  if (normalized === 'admin') return 'admin';
+  try {
+    const { data } = await supabase
+      .from('app_settings')
+      .select('value')
+      .eq('key', `user_role_${normalized}`)
+      .maybeSingle();
+    if (data && data.value && data.value.toLowerCase() === 'admin') {
+      return 'admin';
+    }
+  } catch (e) {}
+  return 'operador';
+}
+
+async function setUserRole(username: string, role: string): Promise<boolean> {
+  const normalized = username.trim().toLowerCase();
+  try {
+    const { error } = await supabase
+      .from('app_settings')
+      .upsert({
+        key: `user_role_${normalized}`,
+        value: role.toLowerCase() === 'admin' ? 'admin' : 'operador'
+      });
+    return !error;
+  } catch (e) {
     return false;
   }
 }
@@ -203,12 +232,34 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         return;
       }
 
-      const [{ data: allProcesses, error: pErr }, { data: members, error: mErr }] = await Promise.all([
-        supabase.from('processes').select('*').order('due_date', { ascending: true }),
-        supabase.from('team_members').select('*').order('name', { ascending: true })
-      ]);
+      let allProcesses: any[] = [];
+      let members: any[] = [];
+      let databaseWarning: string | null = null;
 
-      if (pErr) throw new Error(pErr.message);
+      try {
+        const [{ data: pData, error: pErr }, { data: mData, error: mErr }] = await Promise.all([
+          supabase.from('processes').select('*').order('due_date', { ascending: true }),
+          supabase.from('team_members').select('*').order('name', { ascending: true })
+        ]);
+
+        if (pErr) {
+          console.warn('[Database] Aviso ao consultar processes:', pErr.message);
+          databaseWarning = pErr.message.includes('does not exist')
+            ? 'As tabelas do banco ainda não foram criadas no Supabase. Execute o script schema.sql no SQL Editor.'
+            : pErr.message;
+        } else {
+          allProcesses = pData || [];
+        }
+
+        if (mErr) {
+          console.warn('[Database] Aviso ao consultar team_members:', mErr.message);
+        } else {
+          members = mData || [];
+        }
+      } catch (dbErr: any) {
+        console.warn('[Database] Exceção na conexão com Supabase:', dbErr?.message);
+        databaseWarning = 'Falha ao conectar com o banco de dados. Verifique as credenciais no Supabase/Vercel.';
+      }
 
       const processes = (allProcesses || []).map(proc => {
         const daysRemaining = calculateDaysRemaining(proc.due_date);
@@ -303,6 +354,8 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         teamMembers: combinedMembers.sort((a, b) => a.name.localeCompare(b.name)),
         processes,
         todaySaoPaulo: getTodayDateString(),
+        databaseWarning,
+        currentUserRole: await getUserRole(auth.user || ''),
       }));
       return;
     }
@@ -320,8 +373,9 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
         const expectedPass = await getUserPassword(username);
         if (expectedPass && expectedPass === password) {
           const token = generateToken(username);
+          const role = await getUserRole(username);
           res.writeHead(200, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ ok: true, token, username }));
+          res.end(JSON.stringify({ ok: true, token, username, role }));
           return;
         }
 
@@ -366,6 +420,166 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ ok: true, message: 'Senha alterada com sucesso!' }));
+        return;
+      }
+
+      // Ação: Listar Usuários (Apenas Administrador)
+      if (action === 'list_users') {
+        if (auth.user?.toLowerCase() !== 'admin') {
+          res.writeHead(403, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: 'Apenas o administrador pode listar os usuários.' }));
+          return;
+        }
+
+        const { data: members } = await supabase
+          .from('team_members')
+          .select('*')
+          .order('name', { ascending: true });
+
+        // Carrega papéis de acesso (admin / operador)
+        const { data: roleSettings } = await supabase
+          .from('app_settings')
+          .select('key, value')
+          .like('key', 'user_role_%');
+
+        const roleMap: Record<string, 'admin' | 'operador'> = {};
+        (roleSettings || []).forEach(r => {
+          const u = r.key.replace('user_role_', '').toLowerCase();
+          roleMap[u] = r.value === 'admin' ? 'admin' : 'operador';
+        });
+
+        // Administrador padrão sempre presente
+        const usersList: Array<{ username: string; name: string; role: string; accessRole: 'admin' | 'operador'; createdAt?: string }> = [
+          { username: 'admin', name: 'Administrador Principal', role: 'Administrador do Sistema', accessRole: 'admin' }
+        ];
+
+        (members || []).forEach(m => {
+          const uName = (m.telegram_user_id || m.username || '').toLowerCase();
+          if (uName && uName !== 'admin') {
+            usersList.push({
+              username: uName,
+              name: m.name || uName,
+              role: m.username || 'Arquiteto(a)',
+              accessRole: roleMap[uName] || 'operador',
+              createdAt: m.created_at
+            });
+          }
+        });
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, users: usersList }));
+        return;
+      }
+
+      // Ação: Criar Novo Usuário com Acesso (Apenas Administrador)
+      if (action === 'create_user') {
+        if (auth.user?.toLowerCase() !== 'admin') {
+          res.writeHead(403, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: 'Apenas o administrador pode cadastrar usuários.' }));
+          return;
+        }
+
+        const username = String(body.username || '').trim().toLowerCase().replace(/[^a-z0-9._-]/g, '');
+        const name = String(body.name || '').trim();
+        const role = String(body.role || 'Arquiteto(a)').trim();
+        const accessRole = String(body.accessRole || 'operador').trim().toLowerCase() === 'admin' ? 'admin' : 'operador';
+        const password = String(body.password || '').trim();
+
+        if (!username || username.length < 3) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: 'O nome de usuário deve ter pelo menos 3 caracteres alfanuméricos.' }));
+          return;
+        }
+        if (!name) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: 'O nome completo do usuário é obrigatório.' }));
+          return;
+        }
+        if (!password || password.length < 4) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: 'A senha inicial deve ter pelo menos 4 caracteres.' }));
+          return;
+        }
+
+        // Salva a senha em app_settings
+        const passSaved = await setUserPassword(username, password);
+        if (!passSaved) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: 'Falha ao salvar a senha do usuário no banco.' }));
+          return;
+        }
+
+        // Salva o papel de acesso (admin ou operador)
+        await setUserRole(username, accessRole);
+
+        // Registra o usuário em team_members
+        await supabase
+          .from('team_members')
+          .upsert({
+            telegram_user_id: username,
+            name: name,
+            username: role
+          });
+
+        res.writeHead(201, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          ok: true,
+          message: `Usuário "${username}" (${accessRole}) criado com sucesso!`,
+          user: { username, name, role, accessRole }
+        }));
+        return;
+      }
+
+      // Ação: Excluir Acesso de Usuário (Apenas Administrador)
+      if (action === 'delete_user') {
+        if (auth.user?.toLowerCase() !== 'admin') {
+          res.writeHead(403, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: 'Apenas o administrador pode remover usuários.' }));
+          return;
+        }
+
+        const targetUser = String(body.username || '').trim().toLowerCase();
+        if (targetUser === 'admin') {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: 'O usuário administrador principal não pode ser excluído.' }));
+          return;
+        }
+
+        await supabase.from('team_members').delete().eq('telegram_user_id', targetUser);
+        await supabase.from('app_settings').delete().eq('key', `user_pass_${targetUser}`);
+        await supabase.from('app_settings').delete().eq('key', `user_role_${targetUser}`);
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, message: `Acesso do usuário "${targetUser}" revogado com sucesso.` }));
+        return;
+      }
+
+      // Ação: Redefinir Senha de Usuário (Apenas Administrador)
+      if (action === 'reset_user_password') {
+        if (auth.user?.toLowerCase() !== 'admin') {
+          res.writeHead(403, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: 'Apenas o administrador pode redefinir senhas.' }));
+          return;
+        }
+
+        const targetUser = String(body.username || '').trim().toLowerCase();
+        const newPassword = String(body.newPassword || '').trim();
+
+        if (!newPassword || newPassword.length < 4) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: 'A nova senha deve ter no mínimo 4 caracteres.' }));
+          return;
+        }
+
+        const saved = await setUserPassword(targetUser, newPassword);
+        if (!saved) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: 'Falha ao redefinir a senha no banco.' }));
+          return;
+        }
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, message: `Senha do usuário "${targetUser}" redefinida com sucesso!` }));
         return;
       }
 
@@ -436,18 +650,38 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
       if (action === 'create') {
         const { process_number, client_name, deadline_info, owner_name, owner_telegram_id, due_date, remind_days_before } = body;
 
-        if (!process_number || !client_name || !deadline_info || !due_date || !owner_name) {
+        if (!process_number || !client_name || !deadline_info || !due_date) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ ok: false, error: 'Campos obrigatórios ausentes.' }));
           return;
+        }
+
+        const currentUser = (auth.user || '').toLowerCase();
+        const userRole = await getUserRole(currentUser);
+
+        // Se for operador, o responsável é fixado estritamente nele mesmo
+        let finalOwnerName = String(owner_name || '').trim();
+        let finalOwnerId = String(owner_telegram_id || '').trim();
+
+        if (userRole !== 'admin') {
+          finalOwnerId = currentUser;
+          const { data: memberData } = await supabase
+            .from('team_members')
+            .select('name')
+            .eq('telegram_user_id', currentUser)
+            .maybeSingle();
+          finalOwnerName = memberData?.name || auth.user || 'Operador';
+        } else if (!finalOwnerName) {
+          finalOwnerName = 'Administrador';
+          finalOwnerId = 'admin';
         }
 
         const newProc = await createProcess({
           process_number,
           client_name,
           deadline_info,
-          owner_name,
-          owner_telegram_id: owner_telegram_id || `web_${Date.now()}`,
+          owner_name: finalOwnerName,
+          owner_telegram_id: finalOwnerId || `web_${Date.now()}`,
           due_date,
           remind_days_before: Number(remind_days_before) || 3,
         });
@@ -492,12 +726,34 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           return;
         }
 
+        const currentUser = (auth.user || '').toLowerCase();
+        const userRole = await getUserRole(currentUser);
+
+        // Operador só pode editar os seus próprios processos
+        if (userRole !== 'admin') {
+          const { data: existingProc } = await supabase
+            .from('processes')
+            .select('*')
+            .eq('id', processId)
+            .maybeSingle();
+
+          const isOwner = (existingProc?.owner_telegram_id || '').toLowerCase() === currentUser ||
+                          (existingProc?.owner_name || '').toLowerCase() === currentUser;
+          if (!isOwner) {
+            res.writeHead(403, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'Operadores só podem editar os seus próprios processos.' }));
+            return;
+          }
+        }
+
         const updateData: any = {};
         if (process_number) updateData.process_number = process_number.trim();
         if (client_name) updateData.client_name = client_name.trim();
         if (deadline_info) updateData.deadline_info = deadline_info.trim();
-        if (owner_name) updateData.owner_name = owner_name.trim();
-        if (owner_telegram_id) updateData.owner_telegram_id = String(owner_telegram_id);
+        if (userRole === 'admin' && owner_name) {
+          updateData.owner_name = owner_name.trim();
+          if (owner_telegram_id) updateData.owner_telegram_id = String(owner_telegram_id);
+        }
         if (due_date) updateData.due_date = due_date;
         if (remind_days_before !== undefined) updateData.remind_days_before = Number(remind_days_before);
 
@@ -514,32 +770,55 @@ export default async function handler(req: IncomingMessage, res: ServerResponse)
           return;
         }
 
-        // Notifica no Telegram se a data foi prorrogada ou alterada
-        try {
-          const { data: setting } = await supabase
-            .from('app_settings')
-            .select('value')
-            .eq('key', 'office_group_chat_id')
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, process: updated }));
+        return;
+      }
+
+      // Ação: Excluir Processo (Admin exclui qualquer um; Operador só exclui os próprios)
+      if (action === 'delete_process') {
+        const processId = Number(body.processId);
+        if (!processId) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: 'ID do processo é obrigatório' }));
+          return;
+        }
+
+        const currentUser = (auth.user || '').toLowerCase();
+        const userRole = await getUserRole(currentUser);
+
+        // Se não for admin, verifica se o processo pertence ao operador
+        if (userRole !== 'admin') {
+          const { data: existingProc } = await supabase
+            .from('processes')
+            .select('*')
+            .eq('id', processId)
             .maybeSingle();
 
-          if (bot && bot.api && setting?.value) {
-            await bot.api.sendMessage(
-              setting.value,
-              `✏️ *Prazo Atualizado pelo Painel Web*\n\n` +
-              `📁 *Processo:* \`${updated.process_number}\`\n` +
-              `👤 *Cliente:* ${updated.client_name}\n` +
-              `📝 *Prazo:* ${updated.deadline_info}\n` +
-              `📅 *Novo Vencimento:* ${formatDateBR(updated.due_date)}\n` +
-              `📐 *Responsável:* ${updated.owner_name}`,
-              { parse_mode: 'Markdown' }
-            );
+          if (!existingProc) {
+            res.writeHead(404, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'Processo não encontrado.' }));
+            return;
           }
-        } catch (botErr) {
-          console.warn('[Dashboard Web] Aviso: Notificação de edição falhou:', botErr);
+
+          const isOwner = (existingProc.owner_telegram_id || '').toLowerCase() === currentUser ||
+                          (existingProc.owner_name || '').toLowerCase() === currentUser;
+          if (!isOwner) {
+            res.writeHead(403, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ ok: false, error: 'Operadores só podem excluir os seus próprios processos.' }));
+            return;
+          }
+        }
+
+        const { error: delErr } = await supabase.from('processes').delete().eq('id', processId);
+        if (delErr) {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: delErr.message }));
+          return;
         }
 
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ ok: true, process: updated }));
+        res.end(JSON.stringify({ ok: true, message: 'Processo excluído com sucesso.' }));
         return;
       }
 

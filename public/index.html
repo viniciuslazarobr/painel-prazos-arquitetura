@@ -297,6 +297,21 @@
             <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" /><polyline points="16 17 21 12 16 7" /><line x1="21" y1="12" x2="9" y2="12" />
           </svg>
         ),
+        'trash-2': (
+          <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M3 6h18" /><path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" /><path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" /><line x1="10" x2="10" y1="11" y2="17" /><line x1="14" x2="14" y1="11" y2="17" />
+          </svg>
+        ),
+        'user-plus': (
+          <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><line x1="19" x2="19" y1="8" y2="14" /><line x1="22" x2="16" y1="11" y2="11" />
+          </svg>
+        ),
+        'menu': (
+          <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <line x1="4" x2="20" y1="12" y2="12" /><line x1="4" x2="20" y1="6" y2="6" /><line x1="4" x2="20" y1="18" y2="18" />
+          </svg>
+        ),
         'shield': (
           <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
@@ -458,7 +473,7 @@
           if (!res.ok || !data.ok) {
             throw new Error(data.error || 'Usuário ou senha incorretos.');
           }
-          onLoginSuccess(data.token, data.username);
+          onLoginSuccess(data.token, data.username, data.role);
         } catch (err) {
           setError(err.message || 'Falha ao autenticar.');
         } finally {
@@ -511,7 +526,7 @@
                       required
                       value={username}
                       onChange={(e) => setUsername(e.target.value)}
-                      placeholder="Ex: admin ou alexandre"
+                      placeholder="Digite seu usuário"
                       className="w-full pl-10 pr-4 py-3 rounded-xl bg-slate-800/80 border border-slate-700/80 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/30 text-sm text-white placeholder-slate-500 transition-all outline-none"
                       autoComplete="username"
                     />
@@ -640,22 +655,60 @@
       const [completingUser, setCompletingUser] = useState('');
       const [submittingComplete, setSubmittingComplete] = useState(false);
 
-      // Autenticação de Acesso ao Painel
+      // Autenticação de Acesso ao Painel e Papel (Admin vs Operador)
       const [authToken, setAuthToken] = useState(() => localStorage.getItem('prazos_token') || '');
       const [authUser, setAuthUser] = useState(() => localStorage.getItem('prazos_user') || '');
+      const [userRole, setUserRole] = useState(() => localStorage.getItem('prazos_role') || 'operador');
+      const isAdmin = userRole === 'admin' || authUser.toLowerCase() === 'admin';
 
-      const handleLoginSuccess = (token, user) => {
+      // Navegação por Abas do Menu Lateral
+      const [activeNav, setActiveNav] = useState('prazos'); // 'prazos' | 'usuarios'
+      const [isSidebarOpen, setIsSidebarOpen] = useState(false);
+
+      // Gestão de Usuários (Apenas Administrador)
+      const [usersList, setUsersList] = useState([]);
+      const [loadingUsers, setLoadingUsers] = useState(false);
+      const [isNewUserModalOpen, setIsNewUserModalOpen] = useState(false);
+      const [isSchemaModalOpen, setIsSchemaModalOpen] = useState(false);
+      const [newUserForm, setNewUserForm] = useState({
+        name: '',
+        username: '',
+        role: 'Arquiteto(a)',
+        accessRole: 'operador',
+        password: ''
+      });
+      const [submittingUser, setSubmittingUser] = useState(false);
+      const [resetUserModal, setResetUserModal] = useState({ open: false, user: null, newPassword: '', submitting: false });
+
+      const handleLoginSuccess = (token, user, role) => {
+        const assignedRole = role || (user.toLowerCase() === 'admin' ? 'admin' : 'operador');
         localStorage.setItem('prazos_token', token);
         localStorage.setItem('prazos_user', user);
+        localStorage.setItem('prazos_role', assignedRole);
         setAuthToken(token);
         setAuthUser(user);
+        setUserRole(assignedRole);
       };
 
       const handleLogout = () => {
         localStorage.removeItem('prazos_token');
         localStorage.removeItem('prazos_user');
+        localStorage.removeItem('prazos_role');
         setAuthToken('');
         setAuthUser('');
+        setUserRole('operador');
+        setActiveNav('prazos');
+        setIsSidebarOpen(false);
+      };
+
+      // Regra de Permissão: Administrador pode tudo. Operador só edita/exclui os seus próprios processos
+      const canManageProcess = (proc) => {
+        if (!proc) return false;
+        if (isAdmin) return true;
+        const cur = (authUser || '').toLowerCase();
+        const ownerId = (proc.owner_telegram_id || '').toLowerCase();
+        const ownerName = (proc.owner_name || '').toLowerCase();
+        return ownerId === cur || ownerName === cur;
       };
 
       // Notificações Nativas do Navegador (Estilo Google Notificações)
@@ -849,6 +902,10 @@
             }
 
             setData(json);
+            if (json.currentUserRole) {
+              setUserRole(json.currentUserRole);
+              localStorage.setItem('prazos_role', json.currentUserRole);
+            }
             if (json.teamMembers && json.teamMembers.length > 0) {
               setNewForm(prev => ({
                 ...prev,
@@ -1025,9 +1082,16 @@
         }
         setSubmittingNew(true);
         try {
+          const payload = {
+            action: 'create',
+            ...newForm,
+            owner_name: isAdmin ? (newForm.owner_name || authUser) : authUser,
+            owner_telegram_id: isAdmin ? (newForm.owner_telegram_id || authUser) : authUser
+          };
+
           const res = await authFetch('/api/dashboard', {
             method: 'POST',
-            body: JSON.stringify({ action: 'create', ...newForm })
+            body: JSON.stringify(payload)
           });
           const json = await res.json();
           if (!res.ok || !json.ok) throw new Error(json.error || 'Erro ao criar prazo');
@@ -1042,8 +1106,8 @@
             process_number: '',
             client_name: '',
             deadline_info: '',
-            owner_name: availableMembers[0]?.name || '',
-            owner_telegram_id: availableMembers[0]?.telegram_user_id || '',
+            owner_name: availableMembers[0]?.name || authUser,
+            owner_telegram_id: availableMembers[0]?.telegram_user_id || authUser,
             due_date: '',
             remind_days_before: 3,
           });
@@ -1082,6 +1146,151 @@
           showToast('Erro ao atualizar: ' + err.message, 'error');
         } finally {
           setSubmittingEdit(false);
+        }
+      };
+
+      // Ação: Excluir Processo (Admin exclui qualquer um; Operador só exclui os próprios)
+      const handleDeleteProcess = async (proc) => {
+        if (!proc) return;
+        const confirmMsg = isAdmin
+          ? `[ADMIN] Deseja realmente excluir o processo "${proc.process_number}" (${proc.client_name})?`
+          : `Deseja realmente excluir o seu processo "${proc.process_number}" (${proc.client_name})?`;
+
+        if (!window.confirm(confirmMsg)) return;
+
+        // Atualização Otimista Instantânea (0ms na tela)
+        setData(prev => ({
+          ...prev,
+          processes: prev.processes.filter(p => p.id !== proc.id),
+          metrics: {
+            ...prev.metrics,
+            total: Math.max(0, (prev.metrics.total || 1) - 1),
+            pending: proc.status === 'PENDENTE' ? Math.max(0, prev.metrics.pending - 1) : prev.metrics.pending,
+            completed: proc.status === 'CONCLUIDO' ? Math.max(0, prev.metrics.completed - 1) : prev.metrics.completed
+          }
+        }));
+
+        try {
+          const res = await authFetch('/api/dashboard', {
+            method: 'POST',
+            body: JSON.stringify({ action: 'delete_process', processId: proc.id })
+          });
+          const json = await res.json();
+          if (!res.ok || !json.ok) throw new Error(json.error || 'Erro ao excluir processo');
+          showToast(`Processo #${proc.process_number} excluído com sucesso!`);
+          fetchData(true);
+        } catch (err) {
+          showToast('Erro ao excluir: ' + err.message, 'error');
+          fetchData(true);
+        }
+      };
+
+      // Ação: Listar Usuários (Apenas Administrador)
+      const fetchUsers = async () => {
+        if (!isAdmin) return;
+        setLoadingUsers(true);
+        try {
+          const res = await authFetch('/api/dashboard', {
+            method: 'POST',
+            body: JSON.stringify({ action: 'list_users' })
+          });
+          const json = await res.json();
+          if (json.ok && json.users) {
+            setUsersList(json.users);
+          }
+        } catch (err) {
+          showToast('Erro ao carregar usuários: ' + err.message, 'error');
+        } finally {
+          setLoadingUsers(false);
+        }
+      };
+
+      // Ação: Criar Novo Usuário
+      const handleCreateUserSubmit = async (e) => {
+        e.preventDefault();
+        if (!newUserForm.name || !newUserForm.username || !newUserForm.password) {
+          showToast('Preencha todos os campos obrigatórios!', 'error');
+          return;
+        }
+        if (newUserForm.password.length < 4) {
+          showToast('A senha deve ter no mínimo 4 caracteres!', 'error');
+          return;
+        }
+        setSubmittingUser(true);
+        try {
+          const res = await authFetch('/api/dashboard', {
+            method: 'POST',
+            body: JSON.stringify({
+              action: 'create_user',
+              name: newUserForm.name.trim(),
+              username: newUserForm.username.trim(),
+              role: newUserForm.role.trim(),
+              accessRole: newUserForm.accessRole,
+              password: newUserForm.password.trim()
+            })
+          });
+          const json = await res.json();
+          if (!res.ok || !json.ok) throw new Error(json.error || 'Erro ao criar usuário');
+          showToast(json.message || `Usuário @${newUserForm.username} criado com sucesso!`);
+          setIsNewUserModalOpen(false);
+          setNewUserForm({ name: '', username: '', role: 'Arquiteto(a)', accessRole: 'operador', password: '' });
+          fetchUsers();
+          fetchData(true);
+        } catch (err) {
+          showToast('Erro ao criar usuário: ' + err.message, 'error');
+        } finally {
+          setSubmittingUser(false);
+        }
+      };
+
+      // Ação: Revogar Acesso de Usuário
+      const handleDeleteUser = async (u) => {
+        if (u.username === 'admin') {
+          showToast('O administrador principal não pode ser excluído!', 'error');
+          return;
+        }
+        if (!window.confirm(`Tem certeza que deseja revogar o acesso do usuário @${u.username} (${u.name})?`)) {
+          return;
+        }
+        try {
+          const res = await authFetch('/api/dashboard', {
+            method: 'POST',
+            body: JSON.stringify({ action: 'delete_user', username: u.username })
+          });
+          const json = await res.json();
+          if (!res.ok || !json.ok) throw new Error(json.error || 'Erro ao revogar acesso');
+          showToast(json.message || `Acesso revogado com sucesso!`);
+          fetchUsers();
+          fetchData(true);
+        } catch (err) {
+          showToast('Erro ao revogar acesso: ' + err.message, 'error');
+        }
+      };
+
+      // Ação: Redefinir Senha de Usuário
+      const handleResetPasswordSubmit = async (e) => {
+        e.preventDefault();
+        if (!resetUserModal.newPassword || resetUserModal.newPassword.length < 4) {
+          showToast('A nova senha deve ter no mínimo 4 caracteres.', 'error');
+          return;
+        }
+        setResetUserModal(p => ({ ...p, submitting: true }));
+        try {
+          const res = await authFetch('/api/dashboard', {
+            method: 'POST',
+            body: JSON.stringify({
+              action: 'reset_user_password',
+              username: resetUserModal.user.username,
+              newPassword: resetUserModal.newPassword
+            })
+          });
+          const json = await res.json();
+          if (!res.ok || !json.ok) throw new Error(json.error || 'Erro ao redefinir senha');
+          showToast(json.message || 'Senha redefinida com sucesso!');
+          setResetUserModal({ open: false, user: null, newPassword: '', submitting: false });
+        } catch (err) {
+          showToast('Erro ao redefinir senha: ' + err.message, 'error');
+          setResetUserModal(p => ({ ...p, submitting: false }));
         }
       };
 
@@ -1179,219 +1388,458 @@
       }
 
       return (
-        <div className="min-h-screen flex flex-col pb-16">
-          {/* Header Superior Moderno */}
-          <header className="sticky top-0 z-40 border-b border-slate-200 dark:border-slate-800 bg-white/90 dark:bg-slate-950/90 backdrop-blur-xl no-print shadow-xs">
-            <div className="max-w-[1720px] w-full mx-auto px-3 sm:px-6 lg:px-8">
-              <div className="flex items-center justify-between h-14 sm:h-20">
-                {/* Logo & Título */}
-                <div className="flex items-center space-x-2.5 sm:space-x-4">
-                  <div className="w-9 h-9 sm:w-12 sm:h-12 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center shadow-md shadow-indigo-500/20 border border-indigo-400/30 shrink-0">
-                    <Icon name="architecture" className="w-5 h-5 sm:w-7 sm:h-7 text-white" />
+        <div className="min-h-screen flex bg-slate-50 dark:bg-slate-950 text-slate-900 dark:text-slate-100 antialiased selection:bg-indigo-500/20">
+          
+          {/* SIDEBAR LATERAL FIXO DESKTOP */}
+          <aside className="hidden lg:flex w-64 flex-col justify-between shrink-0 border-r border-slate-200 dark:border-slate-800/80 bg-white/95 dark:bg-slate-950/95 backdrop-blur-xl sticky top-0 h-screen z-30 p-5 shadow-xs no-print">
+            <div className="space-y-6">
+              {/* Marca & Logo de Arquitetura */}
+              <div className="flex items-center space-x-3 px-1">
+                <div className="w-11 h-11 rounded-2xl bg-gradient-to-tr from-indigo-600 via-indigo-500 to-violet-500 flex items-center justify-center shadow-lg shadow-indigo-500/25 border border-indigo-400/30 shrink-0">
+                  <Icon name="architecture" className="w-6 h-6 text-white" />
+                </div>
+                <div className="min-w-0">
+                  <h1 className="text-base font-bold text-slate-900 dark:text-white leading-tight tracking-tight truncate">Painel de Prazos</h1>
+                  <p className="text-[11px] text-slate-500 dark:text-slate-400 truncate font-medium">Arquitetura & Urbanismo</p>
+                </div>
+              </div>
+
+              {/* Card de Usuário Conectado */}
+              <div className="p-3.5 rounded-2xl bg-slate-100/80 dark:bg-slate-900/80 border border-slate-200/80 dark:border-slate-800/80 flex items-center space-x-3">
+                <div className="w-9 h-9 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-600 text-white flex items-center justify-center font-bold text-sm shrink-0 shadow-xs">
+                  {(authUser || 'A').substring(0, 1).toUpperCase()}
+                </div>
+                <div className="min-w-0 flex-1">
+                  <div className="text-xs font-bold text-slate-900 dark:text-white truncate">@{authUser}</div>
+                  <div className="mt-0.5">
+                    {isAdmin ? (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30">
+                        <Icon name="shield" className="w-2.5 h-2.5 mr-1 text-indigo-500" />
+                        Administrador
+                      </span>
+                    ) : (
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-500/15 text-sky-700 dark:text-sky-300 border border-sky-500/30">
+                        <Icon name="user" className="w-2.5 h-2.5 mr-1 text-sky-500" />
+                        Operador
+                      </span>
+                    )}
                   </div>
-                  <div>
-                    <div className="flex items-center space-x-1.5 sm:space-x-2">
-                      <h1 className="text-base sm:text-xl font-bold tracking-tight text-slate-900 dark:text-white">Prazos</h1>
-                      <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[10px] sm:text-xs font-semibold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
-                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1 animate-pulse"></span>
-                        <span className="hidden sm:inline">Tempo Real ⚡</span>
-                        <span className="sm:hidden">Ao Vivo</span>
+                </div>
+              </div>
+
+              {/* Menu de Opções Lateral */}
+              <nav className="space-y-1.5">
+                <button
+                  onClick={() => setActiveNav('prazos')}
+                  className={`w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-xs font-semibold transition-all ${
+                    activeNav === 'prazos'
+                      ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30 font-bold'
+                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-white'
+                  }`}
+                >
+                  <div className="flex items-center space-x-3">
+                    <Icon name="layers" className="w-4 h-4" />
+                    <span>Prazos & Processos</span>
+                  </div>
+                  {data.metrics.pending > 0 && (
+                    <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                      activeNav === 'prazos' ? 'bg-white/20 text-white' : 'bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 border border-indigo-300 dark:border-indigo-800'
+                    }`}>
+                      {data.metrics.pending}
+                    </span>
+                  )}
+                </button>
+
+                {isAdmin && (
+                  <button
+                    onClick={() => {
+                      setActiveNav('usuarios');
+                      fetchUsers();
+                    }}
+                    className={`w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-xs font-semibold transition-all ${
+                      activeNav === 'usuarios'
+                        ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30 font-bold'
+                        : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-white'
+                    }`}
+                  >
+                    <div className="flex items-center space-x-3">
+                      <Icon name="users" className="w-4 h-4" />
+                      <span>Usuários & Acessos</span>
+                    </div>
+                    <span className="text-[10px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/25">
+                      Admin
+                    </span>
+                  </button>
+                )}
+
+                <button
+                  onClick={() => openDospFilteredPost('')}
+                  className="w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-white transition-all"
+                  title="Consultar Diário Oficial de SP (DOSP / ARQUIP)"
+                >
+                  <div className="flex items-center space-x-3">
+                    <Icon name="newspaper" className="w-4 h-4 text-emerald-500" />
+                    <span>Diário Oficial (DOSP)</span>
+                  </div>
+                  <span className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400">SP</span>
+                </button>
+
+                <button
+                  onClick={handleToggleNotifications}
+                  className="w-full flex items-center justify-between px-3.5 py-3 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-white transition-all"
+                  title="Ativar ou Testar Notificações no Navegador"
+                >
+                  <div className="flex items-center space-x-3">
+                    <Icon name={notifStatus === 'granted' ? 'bell-ring' : 'bell'} className="w-4 h-4 text-indigo-500" />
+                    <span>Alertas Navegador</span>
+                  </div>
+                  <span className={`text-[10px] px-2 py-0.5 rounded-full font-bold ${
+                    notifStatus === 'granted'
+                      ? 'bg-emerald-500/15 text-emerald-600 dark:text-emerald-400 border border-emerald-500/30'
+                      : 'bg-amber-500/15 text-amber-700 dark:text-amber-300 border border-amber-500/30'
+                  }`}>
+                    {notifStatus === 'granted' ? 'Ativo' : 'Ativar'}
+                  </span>
+                </button>
+              </nav>
+            </div>
+
+            {/* Rodapé Lateral com Ações de Conta */}
+            <div className="pt-4 border-t border-slate-200 dark:border-slate-800/80 space-y-1">
+              <button
+                onClick={() => {
+                  setPasswordError('');
+                  setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
+                  setIsPasswordModalOpen(true);
+                }}
+                className="w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-xs font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-white transition-all"
+              >
+                <Icon name="key" className="w-4 h-4 text-amber-500" />
+                <span>Alterar Minha Senha</span>
+              </button>
+
+              <button
+                onClick={toggleTheme}
+                className="w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-xs font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800/60 hover:text-slate-900 dark:hover:text-white transition-all"
+              >
+                {theme === 'dark' ? <Icon name="sun" className="w-4 h-4 text-amber-400" /> : <Icon name="moon" className="w-4 h-4 text-indigo-600" />}
+                <span>{theme === 'dark' ? 'Mudar p/ Modo Claro' : 'Mudar p/ Modo Escuro'}</span>
+              </button>
+
+              <button
+                onClick={handleLogout}
+                className="w-full flex items-center space-x-3 px-3 py-2.5 rounded-xl text-xs font-bold text-rose-600 dark:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-all"
+              >
+                <Icon name="log-out" className="w-4 h-4" />
+                <span>Sair do Painel</span>
+              </button>
+            </div>
+          </aside>
+
+          {/* SIDEBAR DRAWER MOBILE (DESLIZANTE PARA TELAS PEQUENAS) */}
+          {isSidebarOpen && (
+            <div className="fixed inset-0 z-50 lg:hidden flex no-print animate-in fade-in duration-150">
+              <div 
+                className="fixed inset-0 bg-black/70 backdrop-blur-xs transition-opacity" 
+                onClick={() => setIsSidebarOpen(false)} 
+              />
+              <div className="relative flex flex-col justify-between w-72 max-w-[85vw] bg-white dark:bg-slate-950 border-r border-slate-200 dark:border-slate-800 p-5 h-full shadow-2xl z-10 animate-in slide-in-from-left duration-200">
+                <div className="space-y-6">
+                  {/* Topo Drawer com Fechar */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                      <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-indigo-600 to-violet-500 flex items-center justify-center text-white shadow-md">
+                        <Icon name="architecture" className="w-5 h-5 text-white" />
+                      </div>
+                      <div>
+                        <h2 className="text-sm font-bold text-slate-900 dark:text-white">Painel de Prazos</h2>
+                        <p className="text-[10px] text-slate-400">Arquitetura & Urbanismo</p>
+                      </div>
+                    </div>
+                    <button 
+                      onClick={() => setIsSidebarOpen(false)}
+                      className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 dark:hover:text-white hover:bg-slate-100 dark:hover:bg-slate-800"
+                    >
+                      <Icon name="x" className="w-5 h-5" />
+                    </button>
+                  </div>
+
+                  {/* Perfil Mobile */}
+                  <div className="p-3 rounded-xl bg-slate-100 dark:bg-slate-900 border border-slate-200 dark:border-slate-800 flex items-center space-x-3">
+                    <div className="w-8 h-8 rounded-lg bg-indigo-600 text-white font-bold flex items-center justify-center text-xs">
+                      {(authUser || 'A').substring(0, 1).toUpperCase()}
+                    </div>
+                    <div className="min-w-0">
+                      <div className="text-xs font-bold text-slate-900 dark:text-white truncate">@{authUser}</div>
+                      <span className={`inline-block text-[10px] font-bold px-1.5 py-0.2 rounded ${isAdmin ? 'text-indigo-600 dark:text-indigo-400' : 'text-sky-600 dark:text-sky-400'}`}>
+                        {isAdmin ? 'Administrador' : 'Operador'}
                       </span>
                     </div>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 hidden sm:block">Painel de Arquitetura & Urbanismo • Notificações no Navegador</p>
                   </div>
-                </div>
 
-                {/* Ações Desktop */}
-                <div className="hidden sm:flex items-center space-x-2">
-                  {/* Botão Notificações do Navegador (Estilo Google) */}
-                  <button
-                    onClick={handleToggleNotifications}
-                    className={`p-2 sm:px-3 sm:py-2 text-xs font-semibold rounded-xl border transition-all flex items-center space-x-1.5 shadow-sm ${
-                      notifStatus === 'granted'
-                        ? 'border-indigo-300 dark:border-indigo-800/80 bg-indigo-50 hover:bg-indigo-100 dark:bg-indigo-950/40 dark:hover:bg-indigo-900/60 text-indigo-700 dark:text-indigo-300'
-                        : 'border-amber-300 dark:border-amber-700/80 bg-amber-50 hover:bg-amber-100 dark:bg-amber-950/40 dark:hover:bg-amber-900/60 text-amber-800 dark:text-amber-300'
-                    }`}
-                    title={notifStatus === 'granted' ? 'Notificações ativas no navegador (Clique para testar alerta)' : 'Clique para ativar notificações no navegador (estilo Google Agenda)'}
-                  >
-                    <Icon name={notifStatus === 'granted' ? 'bell-ring' : 'bell'} className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
-                    <span className="hidden lg:inline">{notifStatus === 'granted' ? 'Alertas Ativos' : 'Ativar Alertas'}</span>
-                  </button>
+                  {/* Links Mobile */}
+                  <nav className="space-y-1">
+                    <button
+                      onClick={() => { setActiveNav('prazos'); setIsSidebarOpen(false); }}
+                      className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold ${
+                        activeNav === 'prazos' ? 'bg-indigo-600 text-white font-bold' : 'text-slate-600 dark:text-slate-400'
+                      }`}
+                    >
+                      <div className="flex items-center space-x-2.5">
+                        <Icon name="layers" className="w-4 h-4" />
+                        <span>Prazos & Processos</span>
+                      </div>
+                      {data.metrics.pending > 0 && (
+                        <span className="px-2 py-0.5 rounded-full text-[10px] bg-white/20 text-white font-bold">
+                          {data.metrics.pending}
+                        </span>
+                      )}
+                    </button>
 
-                  <button
-                    onClick={() => openDospFilteredPost('')}
-                    className="p-2 sm:px-3 sm:py-2 text-xs font-semibold rounded-xl border border-emerald-300 dark:border-emerald-800/80 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/60 text-emerald-800 dark:text-emerald-300 transition-all flex items-center space-x-1.5 shadow-sm"
-                    title="Abrir Diário Oficial SP (DOSP / ARQUIP)"
-                  >
-                    <Icon name="newspaper" className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                    <span>DOSP</span>
-                  </button>
-
-                  <button
-                    onClick={exportToExcel}
-                    className="p-2 sm:px-3 sm:py-2 text-xs font-medium rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/80 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-all flex items-center space-x-1.5 shadow-sm"
-                    title="Exportar Planilha Excel (CSV)"
-                  >
-                    <Icon name="download" className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
-                    <span>Excel</span>
-                  </button>
-
-                  <button
-                    onClick={printReport}
-                    className="p-2 sm:px-3 sm:py-2 text-xs font-medium rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/80 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-all flex items-center space-x-1.5 shadow-sm"
-                    title="Imprimir ou Salvar em PDF"
-                  >
-                    <Icon name="printer" className="w-4 h-4 text-slate-600 dark:text-slate-300" />
-                    <span>PDF</span>
-                  </button>
-
-                  <button
-                    onClick={toggleTheme}
-                    className="p-2 sm:p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/80 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-all shadow-sm"
-                    title={theme === 'dark' ? 'Mudar para Tema Claro' : 'Mudar para Tema Escuro'}
-                  >
-                    {theme === 'dark' ? <Icon name="sun" className="w-4 h-4 text-amber-400" /> : <Icon name="moon" className="w-4 h-4 text-indigo-600" />}
-                  </button>
-
-                  <button
-                    onClick={() => fetchData(false)}
-                    disabled={loading}
-                    className="p-2 sm:p-2.5 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/80 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-all shadow-sm"
-                    title="Forçar Sincronização Agora"
-                  >
-                    <Icon name="refresh-cw" className={`w-4 h-4 ${loading ? 'animate-spin text-indigo-500' : ''}`} />
-                  </button>
-
-                  <button
-                    onClick={() => setIsNewModalOpen(true)}
-                    className="px-4 py-2 text-xs sm:text-sm font-semibold rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/30 transition-all flex items-center space-x-1.5"
-                  >
-                    <Icon name="plus-circle" className="w-4 h-4" />
-                    <span>Novo Prazo</span>
-                  </button>
-
-                  {/* Usuário, Alterar Senha e Logout */}
-                  <div className="flex items-center space-x-1.5 pl-2 border-l border-slate-200 dark:border-slate-800">
-                    <span className="hidden xl:inline-flex items-center px-2.5 py-1.5 rounded-xl text-xs font-semibold bg-slate-100 dark:bg-slate-800/80 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700/60">
-                      <Icon name="user" className="w-3.5 h-3.5 mr-1 text-indigo-500" />
-                      {authUser}
-                    </span>
+                    {isAdmin && (
+                      <button
+                        onClick={() => {
+                          setActiveNav('usuarios');
+                          fetchUsers();
+                          setIsSidebarOpen(false);
+                        }}
+                        className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold ${
+                          activeNav === 'usuarios' ? 'bg-indigo-600 text-white font-bold' : 'text-slate-600 dark:text-slate-400'
+                        }`}
+                      >
+                        <div className="flex items-center space-x-2.5">
+                          <Icon name="users" className="w-4 h-4" />
+                          <span>Usuários & Acessos</span>
+                        </div>
+                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-700 dark:text-amber-300">
+                          Admin
+                        </span>
+                      </button>
+                    )}
 
                     <button
-                      onClick={() => {
-                        setPasswordError('');
-                        setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
-                        setIsPasswordModalOpen(true);
-                      }}
-                      className="p-2 sm:px-2.5 sm:py-2 text-xs font-semibold rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/80 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-all flex items-center space-x-1 shadow-sm"
-                      title="Alterar minha senha de acesso"
+                      onClick={() => { openDospFilteredPost(''); setIsSidebarOpen(false); }}
+                      className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400"
                     >
-                      <Icon name="key" className="w-3.5 h-3.5 text-amber-500" />
-                      <span className="hidden lg:inline">Senha</span>
+                      <div className="flex items-center space-x-2.5">
+                        <Icon name="newspaper" className="w-4 h-4 text-emerald-500" />
+                        <span>Diário Oficial (DOSP)</span>
+                      </div>
+                      <span className="text-[10px] font-bold text-emerald-600">SP</span>
                     </button>
 
                     <button
-                      onClick={handleLogout}
-                      className="p-2 sm:px-3 sm:py-2 text-xs font-semibold rounded-xl border border-rose-200 dark:border-rose-900/60 bg-rose-50 hover:bg-rose-100 dark:bg-rose-950/40 dark:hover:bg-rose-900/60 text-rose-700 dark:text-rose-300 transition-all flex items-center space-x-1.5 shadow-sm"
-                      title={`Conectado como ${authUser}. Clique para sair`}
+                      onClick={() => { handleToggleNotifications(); setIsSidebarOpen(false); }}
+                      className="w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400"
                     >
-                      <Icon name="log-out" className="w-4 h-4 text-rose-600 dark:text-rose-400" />
-                      <span className="hidden md:inline">Sair</span>
+                      <div className="flex items-center space-x-2.5">
+                        <Icon name={notifStatus === 'granted' ? 'bell-ring' : 'bell'} className="w-4 h-4 text-indigo-500" />
+                        <span>Alertas Navegador</span>
+                      </div>
+                      <span className="text-[10px] font-bold">{notifStatus === 'granted' ? 'Ativo' : 'Ativar'}</span>
                     </button>
-                  </div>
+                  </nav>
                 </div>
 
-                {/* Ações Mobile Compactas */}
-                <div className="flex sm:hidden items-center space-x-1.5">
-                  <button
-                    onClick={toggleTheme}
-                    className="p-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200"
-                    title="Alternar Tema"
-                  >
-                    {theme === 'dark' ? <Icon name="sun" className="w-4 h-4 text-amber-400" /> : <Icon name="moon" className="w-4 h-4 text-indigo-600" />}
-                  </button>
-
-                  <button
-                    onClick={() => fetchData(false)}
-                    disabled={loading}
-                    className="p-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200"
-                    title="Atualizar"
-                  >
-                    <Icon name="refresh-cw" className={`w-4 h-4 ${loading ? 'animate-spin text-indigo-500' : ''}`} />
-                  </button>
-
-                  <button
-                    onClick={() => setIsNewModalOpen(true)}
-                    className="px-3 py-1.5 text-xs font-bold rounded-lg bg-indigo-600 text-white shadow-md shadow-indigo-600/30 flex items-center space-x-1"
-                  >
-                    <Icon name="plus-circle" className="w-3.5 h-3.5" />
-                    <span>Novo</span>
-                  </button>
-
+                <div className="pt-4 border-t border-slate-200 dark:border-slate-800 space-y-1">
                   <button
                     onClick={() => {
                       setPasswordError('');
                       setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
                       setIsPasswordModalOpen(true);
+                      setIsSidebarOpen(false);
                     }}
-                    className="p-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200"
-                    title="Alterar Minha Senha"
+                    className="w-full flex items-center space-x-2.5 px-3 py-2 rounded-xl text-xs text-slate-600 dark:text-slate-400"
                   >
                     <Icon name="key" className="w-4 h-4 text-amber-500" />
+                    <span>Alterar Minha Senha</span>
                   </button>
-
+                  <button
+                    onClick={() => { toggleTheme(); setIsSidebarOpen(false); }}
+                    className="w-full flex items-center space-x-2.5 px-3 py-2 rounded-xl text-xs text-slate-600 dark:text-slate-400"
+                  >
+                    {theme === 'dark' ? <Icon name="sun" className="w-4 h-4 text-amber-400" /> : <Icon name="moon" className="w-4 h-4 text-indigo-600" />}
+                    <span>{theme === 'dark' ? 'Modo Claro' : 'Modo Escuro'}</span>
+                  </button>
                   <button
                     onClick={handleLogout}
-                    className="p-2 rounded-lg border border-rose-200 dark:border-rose-900/60 bg-rose-50 dark:bg-rose-950/40 text-rose-700 dark:text-rose-400"
-                    title="Sair do Painel"
+                    className="w-full flex items-center space-x-2.5 px-3 py-2 rounded-xl text-xs font-bold text-rose-600 dark:text-rose-400"
                   >
                     <Icon name="log-out" className="w-4 h-4" />
+                    <span>Sair do Painel</span>
                   </button>
                 </div>
               </div>
-
-              {/* Sub-barra Mobile: Notificações, DOSP, Excel, PDF */}
-              <div className="flex sm:hidden items-center space-x-1.5 py-2 border-t border-slate-100 dark:border-slate-800/60">
-                <button
-                  onClick={handleToggleNotifications}
-                  className={`py-1.5 px-2 text-xs font-semibold rounded-lg border flex items-center justify-center space-x-1 ${
-                    notifStatus === 'granted'
-                      ? 'bg-indigo-50 dark:bg-indigo-950/40 text-indigo-700 dark:text-indigo-300 border-indigo-200 dark:border-indigo-800/60'
-                      : 'bg-amber-50 dark:bg-amber-950/40 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-700/60'
-                  }`}
-                  title="Notificações no Navegador"
-                >
-                  <Icon name={notifStatus === 'granted' ? 'bell-ring' : 'bell'} className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
-                  <span>{notifStatus === 'granted' ? 'Alertas' : 'Ativar'}</span>
-                </button>
-                <button
-                  onClick={() => openDospFilteredPost('')}
-                  className="flex-1 py-1.5 px-2 text-xs font-semibold rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/60 flex items-center justify-center space-x-1"
-                  title="Abrir Diário Oficial SP (DOSP / ARQUIP)"
-                >
-                  <Icon name="newspaper" className="w-3.5 h-3.5" />
-                  <span>DOSP</span>
-                </button>
-                <button
-                  onClick={exportToExcel}
-                  className="py-1.5 px-3 text-xs font-medium rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 flex items-center justify-center space-x-1"
-                >
-                  <Icon name="download" className="w-3.5 h-3.5 text-emerald-500" />
-                  <span>Excel</span>
-                </button>
-                <button
-                  onClick={printReport}
-                  className="py-1.5 px-3 text-xs font-medium rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700 flex items-center justify-center space-x-1"
-                >
-                  <Icon name="printer" className="w-3.5 h-3.5" />
-                  <span>PDF</span>
-                </button>
-              </div>
             </div>
-          </header>
+          )}
 
-          {/* Conteúdo Principal */}
-          <main className="flex-1 max-w-[1720px] w-full mx-auto px-4 sm:px-6 lg:px-8 pt-6 sm:pt-8 space-y-6 sm:space-y-8">
+          {/* ÁREA PRINCIPAL DE CONTEÚDO */}
+          <div className="flex-1 flex flex-col min-w-0 pb-16">
+            {/* Header / Barra Superior */}
+            <header className="sticky top-0 z-20 border-b border-slate-200 dark:border-slate-800/80 bg-white/90 dark:bg-slate-950/90 backdrop-blur-xl no-print shadow-xs">
+              <div className="w-full mx-auto px-3 sm:px-6 lg:px-8">
+                <div className="flex items-center justify-between h-14 sm:h-16">
+                  {/* Lado Esquerdo: Hambúrguer Mobile + Título Dinâmico */}
+                  <div className="flex items-center space-x-3">
+                    <button
+                      onClick={() => setIsSidebarOpen(true)}
+                      className="lg:hidden p-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-100 dark:bg-slate-900 text-slate-700 dark:text-slate-300 hover:bg-slate-200 dark:hover:bg-slate-800 transition-all"
+                      title="Abrir Menu Lateral"
+                    >
+                      <Icon name="menu" className="w-5 h-5" />
+                    </button>
+
+                    <div className="flex items-center space-x-2">
+                      <h1 className="text-base sm:text-lg font-bold text-slate-900 dark:text-white tracking-tight">
+                        {activeNav === 'prazos' ? 'Prazos' : 'Gestão de Usuários'}
+                      </h1>
+                      <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                        <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 mr-1.5 animate-pulse"></span>
+                        Tempo Real ⚡
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Lado Direito: Ações Globais */}
+                  <div className="flex items-center space-x-2">
+                    {/* Botão DOSP */}
+                    <button
+                      onClick={() => openDospFilteredPost('')}
+                      className="hidden sm:inline-flex p-2 sm:px-3 sm:py-2 text-xs font-semibold rounded-xl border border-emerald-300 dark:border-emerald-800/80 bg-emerald-50 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:hover:bg-emerald-900/60 text-emerald-800 dark:text-emerald-300 transition-all items-center space-x-1.5 shadow-xs"
+                      title="Abrir Diário Oficial SP (DOSP / ARQUIP)"
+                    >
+                      <Icon name="newspaper" className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                      <span>DOSP</span>
+                    </button>
+
+                    {/* Exportar Excel */}
+                    {activeNav === 'prazos' && (
+                      <button
+                        onClick={exportToExcel}
+                        className="hidden md:inline-flex p-2 sm:px-3 sm:py-2 text-xs font-medium rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/80 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-all items-center space-x-1.5 shadow-xs"
+                        title="Exportar Planilha Excel (CSV)"
+                      >
+                        <Icon name="download" className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
+                        <span>Excel</span>
+                      </button>
+                    )}
+
+                    {/* Imprimir PDF */}
+                    {activeNav === 'prazos' && (
+                      <button
+                        onClick={printReport}
+                        className="hidden md:inline-flex p-2 sm:px-3 sm:py-2 text-xs font-medium rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/80 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-all items-center space-x-1.5 shadow-xs"
+                        title="Imprimir ou Salvar em PDF"
+                      >
+                        <Icon name="printer" className="w-4 h-4 text-slate-600 dark:text-slate-300" />
+                        <span>PDF</span>
+                      </button>
+                    )}
+
+                    {/* Sincronização */}
+                    <button
+                      onClick={() => fetchData(false)}
+                      disabled={loading}
+                      className="p-2 rounded-xl border border-slate-200 dark:border-slate-800 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800/80 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-200 transition-all shadow-xs"
+                      title="Forçar Sincronização Agora"
+                    >
+                      <Icon name="refresh-cw" className={`w-4 h-4 ${loading ? 'animate-spin text-indigo-500' : ''}`} />
+                    </button>
+
+                    {/* Botão Novo Prazo ou Novo Usuário */}
+                    {activeNav === 'prazos' ? (
+                      <button
+                        onClick={() => setIsNewModalOpen(true)}
+                        className="px-3.5 py-2 text-xs sm:text-sm font-semibold rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/30 transition-all flex items-center space-x-1.5"
+                      >
+                        <Icon name="plus-circle" className="w-4 h-4" />
+                        <span>Novo Prazo</span>
+                      </button>
+                    ) : (
+                      <button
+                        onClick={() => {
+                          setNewUserForm({ name: '', username: '', role: 'Arquiteto(a)', accessRole: 'operador', password: '' });
+                          setIsNewUserModalOpen(true);
+                        }}
+                        className="px-3.5 py-2 text-xs sm:text-sm font-semibold rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/30 transition-all flex items-center space-x-1.5"
+                      >
+                        <Icon name="user-plus" className="w-4 h-4" />
+                        <span>+ Novo Usuário</span>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Sub-barra Mobile Rápida */}
+                <div className="flex sm:hidden items-center space-x-1.5 py-2 border-t border-slate-100 dark:border-slate-800/60">
+                  <button
+                    onClick={() => setActiveNav('prazos')}
+                    className={`flex-1 py-1.5 px-2 text-xs font-semibold rounded-lg border text-center ${
+                      activeNav === 'prazos'
+                        ? 'bg-indigo-600 text-white border-indigo-600'
+                        : 'bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800'
+                    }`}
+                  >
+                    📊 Prazos
+                  </button>
+
+                  {isAdmin && (
+                    <button
+                      onClick={() => { setActiveNav('usuarios'); fetchUsers(); }}
+                      className={`flex-1 py-1.5 px-2 text-xs font-semibold rounded-lg border text-center ${
+                        activeNav === 'usuarios'
+                          ? 'bg-indigo-600 text-white border-indigo-600'
+                          : 'bg-slate-100 dark:bg-slate-900 text-slate-600 dark:text-slate-400 border-slate-200 dark:border-slate-800'
+                      }`}
+                    >
+                      👥 Usuários
+                    </button>
+                  )}
+
+                  <button
+                    onClick={() => openDospFilteredPost('')}
+                    className="py-1.5 px-2 text-xs font-semibold rounded-lg bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/60"
+                  >
+                    DOSP
+                  </button>
+
+                  <button
+                    onClick={exportToExcel}
+                    className="py-1.5 px-2 text-xs font-medium rounded-lg bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700"
+                  >
+                    Excel
+                  </button>
+                </div>
+              </div>
+            </header>
+
+            {/* Conteúdo Principal */}
+            <main className="flex-1 w-full max-w-[1720px] mx-auto px-3 sm:px-6 lg:px-8 pt-5 sm:pt-6 space-y-6">
+
+              {/* Aviso de Setup do Banco de Dados (Supabase) se necessário */}
+              {data.databaseWarning && (
+                <div className="p-4 sm:p-5 rounded-2xl bg-amber-500/10 border border-amber-500/30 text-amber-800 dark:text-amber-200 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 animate-in fade-in duration-200">
+                  <div className="flex items-start space-x-3">
+                    <Icon name="alert-triangle" className="w-5 h-5 text-amber-500 shrink-0 mt-0.5" />
+                    <div>
+                      <h4 className="text-sm font-bold text-slate-900 dark:text-white">Banco de Dados Supabase Conectado, mas Tabelas Ainda Não Foram Criadas</h4>
+                      <p className="text-xs text-slate-600 dark:text-slate-300 mt-0.5">
+                        Para o painel registrar novos prazos e usuários, execute o script SQL inicial no SQL Editor do seu Supabase.
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => setIsSchemaModalOpen(true)}
+                    className="px-4 py-2 rounded-xl text-xs font-bold bg-amber-600 hover:bg-amber-500 text-white shadow-md shadow-amber-600/25 shrink-0"
+                  >
+                    Ver Script schema.sql
+                  </button>
+                </div>
+              )}
+
+              {/* ABA 1: PRAZOS & PROCESSOS */}
+              {activeNav === 'prazos' && (
+                <>
             
             {/* Cards de Métricas Principais (KPIs) */}
             <div className="grid grid-cols-2 lg:grid-cols-5 gap-3 sm:gap-4">
@@ -1739,24 +2187,37 @@
                                 <td className="py-3.5 px-3 sm:px-4 lg:px-5 text-right whitespace-nowrap space-x-1.5">
                                   {proc.status === 'PENDENTE' ? (
                                     <>
-                                      <button
-                                        onClick={() => {
-                                          setEditingItem(proc);
-                                          setEditForm({
-                                            id: proc.id,
-                                            process_number: proc.process_number,
-                                            client_name: proc.client_name,
-                                            deadline_info: proc.deadline_info,
-                                            owner_name: proc.owner_name,
-                                            due_date: proc.due_date,
-                                          });
-                                        }}
-                                        className="inline-flex items-center px-2.5 py-1.5 rounded-lg text-xs font-medium border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all"
-                                        title="Editar ou Prorrogar Prazo"
-                                      >
-                                        <Icon name="edit" className="w-3.5 h-3.5 sm:mr-1 text-slate-500" />
-                                        <span className="hidden sm:inline">Editar</span>
-                                      </button>
+                                      {canManageProcess(proc) && (
+                                        <button
+                                          onClick={() => {
+                                            setEditingItem(proc);
+                                            setEditForm({
+                                              id: proc.id,
+                                              process_number: proc.process_number,
+                                              client_name: proc.client_name,
+                                              deadline_info: proc.deadline_info,
+                                              owner_name: proc.owner_name,
+                                              due_date: proc.due_date,
+                                            });
+                                          }}
+                                          className="inline-flex items-center px-2.5 py-1.5 rounded-lg text-xs font-medium border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all"
+                                          title="Editar ou Prorrogar Prazo"
+                                        >
+                                          <Icon name="edit" className="w-3.5 h-3.5 sm:mr-1 text-slate-500" />
+                                          <span className="hidden sm:inline">Editar</span>
+                                        </button>
+                                      )}
+
+                                      {canManageProcess(proc) && (
+                                        <button
+                                          onClick={() => handleDeleteProcess(proc)}
+                                          className="inline-flex items-center px-2.5 py-1.5 rounded-lg text-xs font-medium border border-rose-300 dark:border-rose-900/60 bg-rose-50/50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/50 transition-all"
+                                          title={isAdmin ? "Excluir Processo (Admin Geral)" : "Excluir Meu Processo"}
+                                        >
+                                          <Icon name="trash-2" className="w-3.5 h-3.5 sm:mr-1 text-rose-500" />
+                                          <span className="hidden sm:inline">Excluir</span>
+                                        </button>
+                                      )}
 
                                       <button
                                         onClick={() => {
@@ -1771,9 +2232,20 @@
                                       </button>
                                     </>
                                   ) : (
-                                    <span className="text-xs text-slate-500 font-medium italic">
-                                      Concluído por {proc.completed_by || 'Equipe'}
-                                    </span>
+                                    <div className="inline-flex items-center space-x-2">
+                                      <span className="text-xs text-slate-500 font-medium italic">
+                                        Concluído por {proc.completed_by || 'Equipe'}
+                                      </span>
+                                      {canManageProcess(proc) && (
+                                        <button
+                                          onClick={() => handleDeleteProcess(proc)}
+                                          className="inline-flex items-center p-1.5 rounded-lg text-xs text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30 transition-all"
+                                          title="Excluir Registro Concluído"
+                                        >
+                                          <Icon name="trash-2" className="w-3.5 h-3.5 text-rose-500" />
+                                        </button>
+                                      )}
+                                    </div>
                                   )}
                                 </td>
                               </tr>
@@ -1851,31 +2323,44 @@
                             </div>
 
                             {proc.status === 'PENDENTE' ? (
-                              <div className="grid grid-cols-3 gap-2">
-                                <button
-                                  onClick={() => {
-                                    setEditingItem(proc);
-                                    setEditForm({
-                                      id: proc.id,
-                                      process_number: proc.process_number,
-                                      client_name: proc.client_name,
-                                      deadline_info: proc.deadline_info,
-                                      owner_name: proc.owner_name,
-                                      due_date: proc.due_date,
-                                    });
-                                  }}
-                                  className="col-span-1 py-2 rounded-xl text-xs font-semibold border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all flex items-center justify-center space-x-1"
-                                >
-                                  <Icon name="edit" className="w-3.5 h-3.5" />
-                                  <span>Editar</span>
-                                </button>
+                              <div className="flex items-center gap-1.5">
+                                {canManageProcess(proc) && (
+                                  <button
+                                    onClick={() => {
+                                      setEditingItem(proc);
+                                      setEditForm({
+                                        id: proc.id,
+                                        process_number: proc.process_number,
+                                        client_name: proc.client_name,
+                                        deadline_info: proc.deadline_info,
+                                        owner_name: proc.owner_name,
+                                        due_date: proc.due_date,
+                                      });
+                                    }}
+                                    className="flex-1 py-2 rounded-xl text-xs font-semibold border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all flex items-center justify-center space-x-1"
+                                    title="Editar Prazo"
+                                  >
+                                    <Icon name="edit" className="w-3.5 h-3.5" />
+                                    <span>Editar</span>
+                                  </button>
+                                )}
+
+                                {canManageProcess(proc) && (
+                                  <button
+                                    onClick={() => handleDeleteProcess(proc)}
+                                    className="p-2 rounded-xl text-xs font-semibold border border-rose-300 dark:border-rose-900/60 bg-rose-50/50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/50 transition-all flex items-center justify-center"
+                                    title={isAdmin ? "Excluir Processo (Admin)" : "Excluir Meu Processo"}
+                                  >
+                                    <Icon name="trash-2" className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
 
                                 <button
                                   onClick={() => {
                                     setCompletingItem(proc);
                                     setCompletingUser(proc.owner_name);
                                   }}
-                                  className="col-span-2 py-2 rounded-xl text-xs font-bold bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 transition-all flex items-center justify-center space-x-1.5"
+                                  className="flex-1 py-2 rounded-xl text-xs font-bold bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 transition-all flex items-center justify-center space-x-1.5"
                                   title="Concluir Prazo"
                                 >
                                   <Icon name="check" className="w-4 h-4 text-emerald-600 dark:text-emerald-400" />
@@ -1883,8 +2368,17 @@
                                 </button>
                               </div>
                             ) : (
-                              <div className="text-center py-2 text-xs text-slate-500 italic">
-                                Concluído por {proc.completed_by || 'Equipe'}
+                              <div className="flex items-center justify-between py-2 text-xs text-slate-500 italic">
+                                <span>Concluído por {proc.completed_by || 'Equipe'}</span>
+                                {canManageProcess(proc) && (
+                                  <button
+                                    onClick={() => handleDeleteProcess(proc)}
+                                    className="p-1 rounded-lg text-slate-400 hover:text-rose-500 hover:bg-rose-50 dark:hover:bg-rose-950/30"
+                                    title="Excluir Registro Concluído"
+                                  >
+                                    <Icon name="trash-2" className="w-3.5 h-3.5" />
+                                  </button>
+                                )}
                               </div>
                             )}
                           </div>
@@ -1966,39 +2460,60 @@
 
                       {/* Botões de Ação para Celular */}
                       {proc.status === 'PENDENTE' ? (
-                        <div className="grid grid-cols-2 gap-2 pt-0.5">
-                          <button
-                            onClick={() => {
-                              setEditingItem(proc);
-                              setEditForm({
-                                id: proc.id,
-                                process_number: proc.process_number,
-                                client_name: proc.client_name,
-                                deadline_info: proc.deadline_info,
-                                owner_name: proc.owner_name,
-                                due_date: proc.due_date,
-                              });
-                            }}
-                            className="py-2.5 px-3 rounded-xl text-xs font-semibold border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all flex items-center justify-center space-x-1.5 shadow-xs"
-                          >
-                            <Icon name="edit" className="w-3.5 h-3.5 text-slate-500" />
-                            <span>Editar</span>
-                          </button>
+                        <div className="flex items-center gap-1.5 pt-0.5">
+                          {canManageProcess(proc) && (
+                            <button
+                              onClick={() => {
+                                setEditingItem(proc);
+                                setEditForm({
+                                  id: proc.id,
+                                  process_number: proc.process_number,
+                                  client_name: proc.client_name,
+                                  deadline_info: proc.deadline_info,
+                                  owner_name: proc.owner_name,
+                                  due_date: proc.due_date,
+                                });
+                              }}
+                              className="flex-1 py-2.5 px-2 rounded-xl text-xs font-semibold border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all flex items-center justify-center space-x-1 shadow-xs"
+                            >
+                              <Icon name="edit" className="w-3.5 h-3.5 text-slate-500" />
+                              <span>Editar</span>
+                            </button>
+                          )}
+
+                          {canManageProcess(proc) && (
+                            <button
+                              onClick={() => handleDeleteProcess(proc)}
+                              className="p-2.5 rounded-xl text-xs font-semibold border border-rose-300 dark:border-rose-900/60 bg-rose-50/50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/50 transition-all flex items-center justify-center shadow-xs"
+                              title={isAdmin ? "Excluir Processo (Admin)" : "Excluir Meu Processo"}
+                            >
+                              <Icon name="trash-2" className="w-3.5 h-3.5" />
+                            </button>
+                          )}
 
                           <button
                             onClick={() => {
                               setCompletingItem(proc);
                               setCompletingUser(proc.owner_name);
                             }}
-                            className="py-2.5 px-3 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-600/25 transition-all flex items-center justify-center space-x-1.5"
+                            className="flex-1 py-2.5 px-3 rounded-xl text-xs font-bold bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-600/25 transition-all flex items-center justify-center space-x-1.5"
                           >
                             <Icon name="check" className="w-4 h-4" />
                             <span>Concluir</span>
                           </button>
                         </div>
                       ) : (
-                        <div className="text-center py-2 text-xs text-slate-500 italic bg-slate-100 dark:bg-slate-800/50 rounded-lg">
-                          Concluído por {proc.completed_by || 'Equipe'} {proc.completedDateFormatted ? `em ${proc.completedDateFormatted}` : ''}
+                        <div className="flex items-center justify-between py-2 px-3 text-xs text-slate-500 italic bg-slate-100 dark:bg-slate-800/50 rounded-lg">
+                          <span>Concluído por {proc.completed_by || 'Equipe'} {proc.completedDateFormatted ? `em ${proc.completedDateFormatted}` : ''}</span>
+                          {canManageProcess(proc) && (
+                            <button
+                              onClick={() => handleDeleteProcess(proc)}
+                              className="p-1 rounded text-slate-400 hover:text-rose-500"
+                              title="Excluir Registro"
+                            >
+                              <Icon name="trash-2" className="w-3.5 h-3.5" />
+                            </button>
+                          )}
                         </div>
                       )}
                     </div>
@@ -2006,7 +2521,167 @@
                 </div>
               </>
             )}
+          </>
+        )}
+
+            {/* ABA 2: GESTÃO DE USUÁRIOS & ACESSOS (APENAS ADMINISTRADOR) */}
+            {activeNav === 'usuarios' && isAdmin && (
+              <div className="space-y-6 animate-in fade-in duration-200">
+                {/* Header Explicativo */}
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 glass-card p-5 sm:p-6 rounded-2xl border border-slate-200 dark:border-slate-800">
+                  <div>
+                    <div className="flex items-center space-x-2.5">
+                      <div className="w-9 h-9 rounded-xl bg-indigo-600/15 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
+                        <Icon name="users" className="w-5 h-5" />
+                      </div>
+                      <h2 className="text-lg sm:text-xl font-bold text-slate-900 dark:text-white">Gestão de Usuários & Acessos</h2>
+                    </div>
+                    <p className="text-xs sm:text-sm text-slate-500 dark:text-slate-400 mt-1">
+                      Cadastre os arquitetos e operadores do escritório, defina permissões e controle senhas de login.
+                    </p>
+                  </div>
+
+                  <button
+                    onClick={() => {
+                      setNewUserForm({ name: '', username: '', role: 'Arquiteto(a)', accessRole: 'operador', password: '' });
+                      setIsNewUserModalOpen(true);
+                    }}
+                    className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white font-semibold text-xs sm:text-sm shadow-md shadow-indigo-600/25 flex items-center justify-center space-x-2 transition-all hover:scale-[1.01]"
+                  >
+                    <Icon name="user-plus" className="w-4 h-4" />
+                    <span>+ Novo Usuário</span>
+                  </button>
+                </div>
+
+                {/* Cards Comparativos dos Perfis de Acesso */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div className="p-4 sm:p-5 rounded-2xl bg-indigo-50/50 dark:bg-indigo-950/25 border border-indigo-200/70 dark:border-indigo-800/40">
+                    <div className="flex items-center space-x-2 text-indigo-700 dark:text-indigo-300 font-bold text-sm mb-2">
+                      <Icon name="shield" className="w-4 h-4" />
+                      <span>Perfil Administrador (Acesso Total)</span>
+                    </div>
+                    <ul className="text-xs text-slate-600 dark:text-slate-300 space-y-1.5 list-disc list-inside">
+                      <li>Pode incluir prazos para <strong>qualquer arquiteto(a)</strong> da equipe.</li>
+                      <li>Pode editar e <strong>excluir qualquer processo do escritório</strong>.</li>
+                      <li>Acesso exclusivo a esta tela para cadastrar usuários, revogar acessos e redefinir senhas.</li>
+                    </ul>
+                  </div>
+
+                  <div className="p-4 sm:p-5 rounded-2xl bg-sky-50/50 dark:bg-sky-950/25 border border-sky-200/70 dark:border-sky-800/40">
+                    <div className="flex items-center space-x-2 text-sky-700 dark:text-sky-300 font-bold text-sm mb-2">
+                      <Icon name="user" className="w-4 h-4" />
+                      <span>Perfil Operador (Acesso Restrito)</span>
+                    </div>
+                    <ul className="text-xs text-slate-600 dark:text-slate-300 space-y-1.5 list-disc list-inside">
+                      <li>Transparência total: <strong>visualiza todos os prazos do escritório</strong> para alinhamento.</li>
+                      <li>Ao cadastrar um novo prazo, ele é <strong>atribuído estritamente ao seu próprio usuário</strong>.</li>
+                      <li>Pode editar e <strong>excluir apenas os processos que ele mesmo cadastrou</strong>.</li>
+                    </ul>
+                  </div>
+                </div>
+
+                {/* Tabela de Usuários */}
+                <div className="glass-card rounded-2xl border border-slate-200 dark:border-slate-800 overflow-hidden shadow-xs">
+                  <div className="px-5 py-3.5 bg-slate-50/80 dark:bg-slate-900/60 border-b border-slate-200 dark:border-slate-800 flex items-center justify-between">
+                    <span className="text-xs font-bold uppercase tracking-wider text-slate-600 dark:text-slate-400">
+                      Membros com Acesso ({usersList.length})
+                    </span>
+                    <button
+                      onClick={fetchUsers}
+                      disabled={loadingUsers}
+                      className="text-xs font-semibold text-indigo-600 dark:text-indigo-400 hover:underline flex items-center space-x-1"
+                    >
+                      <Icon name="refresh-cw" className={`w-3.5 h-3.5 ${loadingUsers ? 'animate-spin' : ''}`} />
+                      <span>Atualizar Lista</span>
+                    </button>
+                  </div>
+
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-left text-xs sm:text-sm">
+                      <thead className="bg-slate-100/70 dark:bg-slate-900/80 border-b border-slate-200 dark:border-slate-800 text-[11px] font-bold uppercase text-slate-500">
+                        <tr>
+                          <th className="py-3 px-4 sm:px-6">Usuário / Nome</th>
+                          <th className="py-3 px-4 sm:px-6">Cargo no Escritório</th>
+                          <th className="py-3 px-4 sm:px-6">Perfil de Acesso</th>
+                          <th className="py-3 px-4 sm:px-6 text-right">Ações</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-200 dark:divide-slate-800">
+                        {loadingUsers && usersList.length === 0 ? (
+                          <tr>
+                            <td colSpan={4} className="py-10 text-center text-slate-400">
+                              <Icon name="loader" className="w-6 h-6 animate-spin mx-auto mb-2 text-indigo-500" />
+                              <span>Carregando usuários cadastrados...</span>
+                            </td>
+                          </tr>
+                        ) : usersList.length === 0 ? (
+                          <tr>
+                            <td colSpan={4} className="py-8 text-center text-slate-400">
+                              Nenhum usuário cadastrado.
+                            </td>
+                          </tr>
+                        ) : (
+                          usersList.map((u) => (
+                            <tr key={u.username} className="hover:bg-slate-50/60 dark:hover:bg-slate-900/40 transition-colors">
+                              <td className="py-3.5 px-4 sm:px-6">
+                                <div className="flex items-center space-x-3">
+                                  <div className="w-8 h-8 rounded-xl bg-gradient-to-tr from-indigo-600 to-indigo-800 text-white flex items-center justify-center font-bold text-xs shrink-0 shadow-xs">
+                                    {u.name ? u.name.substring(0, 2).toUpperCase() : u.username.substring(0, 2).toUpperCase()}
+                                  </div>
+                                  <div>
+                                    <div className="font-semibold text-slate-900 dark:text-white">{u.name}</div>
+                                    <div className="text-xs text-slate-500 font-mono">@{u.username}</div>
+                                  </div>
+                                </div>
+                              </td>
+                              <td className="py-3.5 px-4 sm:px-6 text-slate-700 dark:text-slate-300 font-medium">
+                                {u.role || 'Arquiteto(a)'}
+                              </td>
+                              <td className="py-3.5 px-4 sm:px-6">
+                                {u.accessRole === 'admin' || u.username === 'admin' ? (
+                                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-bold bg-indigo-500/15 text-indigo-700 dark:text-indigo-300 border border-indigo-500/30">
+                                    <Icon name="shield" className="w-3 h-3 mr-1 text-indigo-500" />
+                                    Administrador
+                                  </span>
+                                ) : (
+                                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-semibold bg-sky-500/15 text-sky-700 dark:text-sky-300 border border-sky-500/30">
+                                    <Icon name="user" className="w-3 h-3 mr-1 text-sky-500" />
+                                    Operador
+                                  </span>
+                                )}
+                              </td>
+                              <td className="py-3.5 px-4 sm:px-6 text-right whitespace-nowrap space-x-2">
+                                <button
+                                  onClick={() => setResetUserModal({ open: true, user: u, newPassword: '', submitting: false })}
+                                  className="inline-flex items-center px-2.5 py-1.5 rounded-lg text-xs font-medium border border-slate-300 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-all"
+                                  title="Redefinir Senha deste Usuário"
+                                >
+                                  <Icon name="key" className="w-3.5 h-3.5 sm:mr-1 text-amber-500" />
+                                  <span className="hidden sm:inline">Redefinir Senha</span>
+                                </button>
+
+                                {u.username !== 'admin' && (
+                                  <button
+                                    onClick={() => handleDeleteUser(u)}
+                                    className="inline-flex items-center px-2.5 py-1.5 rounded-lg text-xs font-medium border border-rose-300 dark:border-rose-900/60 bg-rose-50/50 dark:bg-rose-950/30 text-rose-600 dark:text-rose-400 hover:bg-rose-100 dark:hover:bg-rose-900/50 transition-all"
+                                    title="Revogar Acesso deste Usuário"
+                                  >
+                                    <Icon name="trash-2" className="w-3.5 h-3.5 sm:mr-1 text-rose-500" />
+                                    <span className="hidden sm:inline">Revogar</span>
+                                  </button>
+                                )}
+                              </td>
+                            </tr>
+                          ))
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </div>
+            )}
           </main>
+        </div>
 
           {/* Modal: Novo Prazo */}
           {isNewModalOpen && (
@@ -2059,7 +2734,7 @@
                     <input
                       type="text"
                       required
-                      placeholder="Ex: Apelação Cível / Contestação / Réplica"
+                      placeholder="Ex: Projeto Executivo / Estudo Preliminar / Alvará de Aprovação"
                       value={newForm.deadline_info}
                       onChange={e => setNewForm({ ...newForm, deadline_info: e.target.value })}
                       className="w-full px-3.5 py-2 text-sm bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-500 focus:outline-none focus:border-indigo-500"
@@ -2069,24 +2744,34 @@
                   <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="block text-xs font-semibold text-slate-700 dark:text-slate-300 mb-1">Responsável *</label>
-                      <select
-                        required
-                        value={newForm.owner_name}
-                        onChange={e => {
-                          const name = e.target.value;
-                          const found = availableMembers.find(m => m.name === name);
-                          setNewForm({
-                            ...newForm,
-                            owner_name: name,
-                            owner_telegram_id: found ? found.telegram_user_id : ''
-                          });
-                        }}
-                        className="w-full px-3.5 py-2 text-sm bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
-                      >
-                        {availableMembers.map(m => (
-                          <option key={m.telegram_user_id} value={m.name}>{m.name}</option>
-                        ))}
-                      </select>
+                      {isAdmin ? (
+                        <select
+                          required
+                          value={newForm.owner_name}
+                          onChange={e => {
+                            const name = e.target.value;
+                            const found = availableMembers.find(m => m.name === name);
+                            setNewForm({
+                              ...newForm,
+                              owner_name: name,
+                              owner_telegram_id: found ? found.telegram_user_id : ''
+                            });
+                          }}
+                          className="w-full px-3.5 py-2 text-sm bg-slate-50 dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
+                        >
+                          {availableMembers.map(m => (
+                            <option key={m.telegram_user_id} value={m.name}>{m.name}</option>
+                          ))}
+                        </select>
+                      ) : (
+                        <div className="w-full px-3.5 py-2 text-sm bg-slate-100 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-700 dark:text-slate-300 flex items-center justify-between">
+                          <span className="font-semibold">{authUser} (Você)</span>
+                          <span className="text-[10px] font-bold text-sky-600 dark:text-sky-400 bg-sky-500/10 px-2 py-0.5 rounded border border-sky-500/20">Operador</span>
+                        </div>
+                      )}
+                      {!isAdmin && (
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">Como operador, o prazo é vinculado automaticamente ao seu usuário.</p>
+                      )}
                     </div>
 
                     <div>
@@ -2529,6 +3214,349 @@
                     </button>
                   </div>
                 </form>
+              </div>
+            </div>
+          )}
+
+          {/* Modal: Novo Usuário (Admin) */}
+          {isNewUserModalOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/70 backdrop-blur-sm no-print">
+              <div className="glass-card rounded-2xl w-full max-w-md max-h-[90vh] overflow-y-auto custom-scrollbar border border-slate-300 dark:border-slate-700 shadow-2xl p-5 sm:p-7 relative bg-white dark:bg-slate-900 animate-in fade-in zoom-in-95 duration-150">
+                <button 
+                  onClick={() => setIsNewUserModalOpen(false)}
+                  className="absolute right-5 top-5 text-slate-400 hover:text-slate-600 dark:hover:text-white"
+                >
+                  <Icon name="x" className="w-5 h-5" />
+                </button>
+
+                <div className="flex items-center space-x-3 mb-5">
+                  <div className="w-10 h-10 rounded-xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
+                    <Icon name="user-plus" className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-bold text-slate-900 dark:text-white">Novo Usuário de Acesso</h2>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">Cadastre um novo login para a equipe de arquitetura</p>
+                  </div>
+                </div>
+
+                <form onSubmit={handleCreateUserSubmit} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1">
+                      Nome Completo *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Ex: Alexandre Rocha"
+                      value={newUserForm.name}
+                      onChange={e => setNewUserForm({ ...newUserForm, name: e.target.value })}
+                      className="w-full px-3.5 py-2.5 text-sm bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1">
+                      Usuário de Login (minúsculas, sem espaço) *
+                    </label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Ex: alexandre"
+                      value={newUserForm.username}
+                      onChange={e => setNewUserForm({ ...newUserForm, username: e.target.value.toLowerCase().replace(/[^a-z0-9._-]/g, '') })}
+                      className="w-full px-3.5 py-2.5 text-sm bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500 font-mono"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1">
+                      Cargo / Função
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Ex: Arquiteto(a) / Coordenador(a)"
+                      value={newUserForm.role}
+                      onChange={e => setNewUserForm({ ...newUserForm, role: e.target.value })}
+                      className="w-full px-3.5 py-2.5 text-sm bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-2">
+                      Perfil de Acesso *
+                    </label>
+                    <div className="grid grid-cols-2 gap-3">
+                      <label className={`p-3 rounded-xl border cursor-pointer flex flex-col justify-between transition-all ${
+                        newUserForm.accessRole === 'operador'
+                          ? 'border-sky-500 bg-sky-500/10 text-sky-900 dark:text-sky-200 ring-2 ring-sky-500/20'
+                          : 'border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'
+                      }`}>
+                        <div className="flex items-center space-x-2">
+                          <input
+                            type="radio"
+                            name="accessRole"
+                            value="operador"
+                            checked={newUserForm.accessRole === 'operador'}
+                            onChange={() => setNewUserForm({ ...newUserForm, accessRole: 'operador' })}
+                            className="text-sky-600 focus:ring-sky-500"
+                          />
+                          <span className="text-xs font-bold">👤 Operador</span>
+                        </div>
+                        <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1.5 leading-tight">
+                          Edita e exclui apenas seus próprios prazos.
+                        </p>
+                      </label>
+
+                      <label className={`p-3 rounded-xl border cursor-pointer flex flex-col justify-between transition-all ${
+                        newUserForm.accessRole === 'admin'
+                          ? 'border-indigo-500 bg-indigo-500/10 text-indigo-900 dark:text-indigo-200 ring-2 ring-indigo-500/20'
+                          : 'border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300'
+                      }`}>
+                        <div className="flex items-center space-x-2">
+                          <input
+                            type="radio"
+                            name="accessRole"
+                            value="admin"
+                            checked={newUserForm.accessRole === 'admin'}
+                            onChange={() => setNewUserForm({ ...newUserForm, accessRole: 'admin' })}
+                            className="text-indigo-600 focus:ring-indigo-500"
+                          />
+                          <span className="text-xs font-bold">🛡️ Administrador</span>
+                        </div>
+                        <p className="text-[10px] text-slate-500 dark:text-slate-400 mt-1.5 leading-tight">
+                          Acesso total a todos os processos e equipe.
+                        </p>
+                      </label>
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1">
+                      Senha Inicial de Acesso *
+                    </label>
+                    <input
+                      type="password"
+                      required
+                      minLength={4}
+                      placeholder="Mínimo 4 caracteres"
+                      value={newUserForm.password}
+                      onChange={e => setNewUserForm({ ...newUserForm, password: e.target.value })}
+                      className="w-full px-3.5 py-2.5 text-sm bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white focus:outline-none focus:border-indigo-500"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-end space-x-2 pt-3">
+                    <button
+                      type="button"
+                      onClick={() => setIsNewUserModalOpen(false)}
+                      className="px-4 py-2 text-xs sm:text-sm font-medium rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={submittingUser}
+                      className="px-5 py-2 text-xs sm:text-sm font-semibold rounded-xl bg-gradient-to-r from-indigo-600 to-violet-600 hover:from-indigo-500 hover:to-violet-500 text-white shadow-lg shadow-indigo-600/30 flex items-center space-x-1.5"
+                    >
+                      {submittingUser ? (
+                        <>
+                          <Icon name="loader" className="w-4 h-4 animate-spin" />
+                          <span>Cadastrando...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Icon name="check" className="w-4 h-4" />
+                          <span>Cadastrar Usuário</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Modal: Redefinir Senha de Usuário (Admin) */}
+          {resetUserModal.open && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/70 backdrop-blur-sm no-print">
+              <div className="glass-card rounded-2xl w-full max-w-md border border-slate-300 dark:border-slate-700 shadow-2xl p-5 sm:p-7 relative bg-white dark:bg-slate-900 animate-in fade-in zoom-in-95 duration-150">
+                <button 
+                  onClick={() => setResetUserModal({ open: false, user: null, newPassword: '', submitting: false })}
+                  className="absolute right-5 top-5 text-slate-400 hover:text-slate-600 dark:hover:text-white"
+                >
+                  <Icon name="x" className="w-5 h-5" />
+                </button>
+
+                <div className="flex items-center space-x-3 mb-5">
+                  <div className="w-10 h-10 rounded-xl bg-amber-600/20 border border-amber-500/30 flex items-center justify-center text-amber-600 dark:text-amber-400">
+                    <Icon name="key" className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-bold text-slate-900 dark:text-white">Redefinir Senha</h2>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">
+                      Alterando senha de <strong>@{resetUserModal.user?.username}</strong> ({resetUserModal.user?.name})
+                    </p>
+                  </div>
+                </div>
+
+                <form onSubmit={handleResetPasswordSubmit} className="space-y-4">
+                  <div>
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-slate-700 dark:text-slate-300 mb-1">
+                      Nova Senha de Acesso *
+                    </label>
+                    <input
+                      type="password"
+                      required
+                      minLength={4}
+                      placeholder="Mínimo 4 caracteres"
+                      value={resetUserModal.newPassword}
+                      onChange={e => setResetUserModal(p => ({ ...p, newPassword: e.target.value }))}
+                      className="w-full px-3.5 py-2.5 text-sm bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 rounded-xl text-slate-900 dark:text-white focus:outline-none focus:border-amber-500"
+                    />
+                  </div>
+
+                  <div className="flex items-center justify-end space-x-2 pt-2">
+                    <button
+                      type="button"
+                      onClick={() => setResetUserModal({ open: false, user: null, newPassword: '', submitting: false })}
+                      className="px-4 py-2 text-xs sm:text-sm font-medium rounded-xl border border-slate-300 dark:border-slate-700 bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={resetUserModal.submitting}
+                      className="px-5 py-2 text-xs sm:text-sm font-semibold rounded-xl bg-gradient-to-r from-amber-600 to-amber-500 hover:from-amber-500 text-white shadow-lg shadow-amber-600/30 flex items-center space-x-1.5"
+                    >
+                      {resetUserModal.submitting ? (
+                        <>
+                          <Icon name="loader" className="w-4 h-4 animate-spin" />
+                          <span>Salvando...</span>
+                        </>
+                      ) : (
+                        <>
+                          <Icon name="check" className="w-4 h-4" />
+                          <span>Confirmar Nova Senha</span>
+                        </>
+                      )}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* Modal: Visualizar Script schema.sql */}
+          {isSchemaModalOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-4 bg-black/70 backdrop-blur-sm no-print">
+              <div className="glass-card rounded-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto custom-scrollbar border border-slate-300 dark:border-slate-700 shadow-2xl p-5 sm:p-7 relative bg-white dark:bg-slate-900 animate-in fade-in zoom-in-95 duration-150">
+                <button 
+                  onClick={() => setIsSchemaModalOpen(false)}
+                  className="absolute right-5 top-5 text-slate-400 hover:text-slate-600 dark:hover:text-white"
+                >
+                  <Icon name="x" className="w-5 h-5" />
+                </button>
+
+                <div className="flex items-center space-x-3 mb-4">
+                  <div className="w-10 h-10 rounded-xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-indigo-600 dark:text-indigo-400">
+                    <Icon name="layers" className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h2 className="text-lg font-bold text-slate-900 dark:text-white">Script de Inicialização do Supabase</h2>
+                    <p className="text-xs text-slate-500 dark:text-slate-400">Copie o código abaixo e cole no SQL Editor do seu projeto Supabase</p>
+                  </div>
+                </div>
+
+                <div className="relative mb-4">
+                  <pre className="p-4 rounded-xl bg-slate-950 text-slate-200 font-mono text-xs overflow-x-auto max-h-72 border border-slate-800">
+{`CREATE TABLE IF NOT EXISTS processes (
+  id BIGSERIAL PRIMARY KEY,
+  process_number TEXT NOT NULL,
+  client_name TEXT NOT NULL,
+  deadline_info TEXT NOT NULL,
+  owner_name TEXT NOT NULL,
+  owner_telegram_id TEXT NOT NULL,
+  due_date DATE NOT NULL,
+  remind_days_before INT DEFAULT 3,
+  status TEXT DEFAULT 'PENDENTE',
+  completed_by TEXT,
+  completed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS team_members (
+  id BIGSERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  username TEXT,
+  telegram_user_id TEXT UNIQUE NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS app_settings (
+  id BIGSERIAL PRIMARY KEY,
+  key TEXT UNIQUE NOT NULL,
+  value TEXT NOT NULL,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+INSERT INTO app_settings (key, value)
+VALUES ('user_pass_admin', 'prazos2026')
+ON CONFLICT (key) DO NOTHING;`}
+                  </pre>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText(`CREATE TABLE IF NOT EXISTS processes (
+  id BIGSERIAL PRIMARY KEY,
+  process_number TEXT NOT NULL,
+  client_name TEXT NOT NULL,
+  deadline_info TEXT NOT NULL,
+  owner_name TEXT NOT NULL,
+  owner_telegram_id TEXT NOT NULL,
+  due_date DATE NOT NULL,
+  remind_days_before INT DEFAULT 3,
+  status TEXT DEFAULT 'PENDENTE',
+  completed_by TEXT,
+  completed_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS team_members (
+  id BIGSERIAL PRIMARY KEY,
+  name TEXT NOT NULL,
+  username TEXT,
+  telegram_user_id TEXT UNIQUE NOT NULL,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS app_settings (
+  id BIGSERIAL PRIMARY KEY,
+  key TEXT UNIQUE NOT NULL,
+  value TEXT NOT NULL,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+INSERT INTO app_settings (key, value)
+VALUES ('user_pass_admin', 'prazos2026')
+ON CONFLICT (key) DO NOTHING;`);
+                      showToast('SQL copiado para a área de transferência!');
+                    }}
+                    className="absolute top-3 right-3 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-semibold shadow-xs flex items-center space-x-1"
+                  >
+                    <Icon name="copy" className="w-3.5 h-3.5" />
+                    <span>Copiar SQL</span>
+                  </button>
+                </div>
+
+                <div className="flex justify-end">
+                  <button
+                    onClick={() => setIsSchemaModalOpen(false)}
+                    className="px-4 py-2 rounded-xl text-xs sm:text-sm font-semibold bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-300 dark:border-slate-700"
+                  >
+                    Fechar
+                  </button>
+                </div>
               </div>
             </div>
           )}
