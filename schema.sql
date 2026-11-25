@@ -64,19 +64,13 @@ INSERT INTO team_members (telegram_user_id, name, username)
 VALUES ('admin', 'Arquiteto Responsável', 'admin')
 ON CONFLICT (telegram_user_id) DO NOTHING;
 
--- Configuração de Row Level Security (RLS)
--- Como o bot utiliza a chave de serviço (SUPABASE_SERVICE_ROLE_KEY),
--- o backend tem acesso completo mesmo com RLS ativado.
-ALTER TABLE team_members ENABLE ROW LEVEL SECURITY;
-ALTER TABLE processes ENABLE ROW LEVEL SECURITY;
-ALTER TABLE app_settings ENABLE ROW LEVEL SECURITY;
 
--- Políticas para permitir leitura e escrita para autenticação via service_role
-CREATE POLICY "Allow service_role full access to team_members" ON team_members
-    FOR ALL USING (auth.role() = 'service_role');
+-- Concede todas as permissões para as tabelas e desativa RLS para o backend
+GRANT ALL ON ALL TABLES IN SCHEMA public TO anon, authenticated, service_role, postgres;
+GRANT ALL ON ALL SEQUENCES IN SCHEMA public TO anon, authenticated, service_role, postgres;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON TABLES TO anon, authenticated, service_role, postgres;
+ALTER DEFAULT PRIVILEGES IN SCHEMA public GRANT ALL ON SEQUENCES TO anon, authenticated, service_role, postgres;
 
-CREATE POLICY "Allow service_role full access to processes" ON processes
-    FOR ALL USING (auth.role() = 'service_role');
-
-CREATE POLICY "Allow service_role full access to app_settings" ON app_settings
-    FOR ALL USING (auth.role() = 'service_role');
+ALTER TABLE IF EXISTS processes DISABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS team_members DISABLE ROW LEVEL SECURITY;
+ALTER TABLE IF EXISTS app_settings DISABLE ROW LEVEL SECURITY;
