@@ -61,7 +61,7 @@ Você pode manter tudo de forma organizada, profissional e sem misturar registro
 flowchart TD
     subgraph VERCEL[" Mesma Conta na Vercel "]
         V1["🏢 Projeto 1: telegram-prazos-bot.vercel.app<br/>(Empresa do Irmão)"]
-        V2["💼 Projeto 2: painel-prazos-vendas.vercel.app<br/>(Novo Cliente / Comercial)"]
+        V2["💼 Projeto 2: painel-prazos-arquiteturas.vercel.app<br/>(Novo Cliente / Comercial)"]
     end
 
     subgraph SUPABASE[" Mesma Conta no Supabase (Plano Gratuito) "]
@@ -84,7 +84,7 @@ O Supabase gratuito permite **até 2 projetos ativos simultâneos** por conta se
 ### 2. Hospedar na Vercel (Mesma Conta)
 1. Acesse o seu painel da [Vercel](https://vercel.com).
 2. Clique em **"Add New..." ➡️ "Project"**.
-3. Selecione o repositório **`painel-prazos-vendas`**.
+3. Selecione o repositório **`painel-prazos-arquiteturas`**.
 4. Em **Environment Variables**, adicione as seguintes variáveis:
    - `SUPABASE_URL`: *(URL copiada do novo projeto Supabase)*
    - `SUPABASE_SERVICE_ROLE_KEY`: *(Chave service_role copiada do novo projeto Supabase)*
