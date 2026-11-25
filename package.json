@@ -1,5 +1,5 @@
 {
-  "name": "painel-prazos-vendas",
+  "name": "painel-prazos",
   "version": "1.0.0",
   "description": "Painel Executivo de Prazos e Processos de Arquitetura & Urbanismo com Notificações Nativas no Navegador (Versão Comercial)",
   "main": "dist/index.js",
