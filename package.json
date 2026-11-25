@@ -1,0 +1,43 @@
+{
+  "name": "painel-prazos-vendas",
+  "version": "1.0.0",
+  "description": "Painel Executivo de Prazos e Processos de Arquitetura & Urbanismo com Notificações Nativas no Navegador (Versão Comercial)",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [
+    "telegram",
+    "bot",
+    "grammy",
+    "supabase",
+    "deadlines",
+    "legal",
+    "cron",
+    "render",
+    "gemini"
+  ],
+  "author": "Escritório",
+  "license": "MIT",
+  "dependencies": {
+    "@google/generative-ai": "^0.21.0",
+    "@supabase/supabase-js": "^2.48.0",
+    "dotenv": "^16.4.7",
+    "express": "^4.21.2",
+    "grammy": "^1.34.0",
+    "node-cron": "^3.0.3"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.10.2",
+    "@types/node-cron": "^3.0.11",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
