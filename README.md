@@ -96,7 +96,7 @@ O Supabase gratuito permite **até 2 projetos ativos simultâneos** por conta se
 ## 📂 Estrutura de Arquivos
 
 ```text
-painel-prazos-vendas/
+painel-prazos-arquiteturas/
 ├── api/
 │   ├── dashboard.ts       # Endpoint serverless: CRUD de prazos, auth e consulta DOSP
 │   ├── cron.ts            # Disparos de rotinas automáticas
